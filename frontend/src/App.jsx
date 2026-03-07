@@ -2,53 +2,9 @@ import { useState } from 'react'
 import './App.css'
 import authIllustration from './assets/auth-illustration.png'
 import logoSquare from './assets/square.svg'
-import logoS from './assets/logo-s.png'
-import logoSBlue from './assets/logo-s-blue.png'
-
-function MailIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        d="M4 6h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1Z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.7"
-      />
-      <path
-        d="m4 8 8 6 8-6"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.7"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
-function LockIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        d="M7 10V8a5 5 0 1 1 10 0v2"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.7"
-        strokeLinecap="round"
-      />
-      <rect
-        x="4"
-        y="10"
-        width="16"
-        height="10"
-        rx="2"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.7"
-      />
-    </svg>
-  )
-}
+import logoS from './assets/logo-s.svg'
+import emailIcon from './assets/email-icon.svg'
+import lockIcon from './assets/lock-icon.svg'
 
 function EyeIcon({ isOpen }) {
   if (isOpen) {
@@ -161,13 +117,13 @@ function App() {
 
         <section className="auth-form-panel">
           <div className="auth-logo-box auth-logo-box-mobile" aria-hidden="true">
-            <img className="auth-logo-s" src={logoSBlue} alt="" />
+            <img className="auth-logo-s" src={logoS} alt="" />
           </div>
           <h1 className="auth-title">Log in</h1>
           <form className="auth-form">
             <div className="input-shell">
               <span className="input-icon">
-                <MailIcon />
+                <img src={emailIcon} alt="" aria-hidden="true" className="field-icon-img" />
               </span>
               <input
                 id="email"
@@ -183,7 +139,7 @@ function App() {
 
             <div className="input-shell">
               <span className="input-icon">
-                <LockIcon />
+                <img src={lockIcon} alt="" aria-hidden="true" className="field-icon-img" />
               </span>
               <input
                 id="password"
