@@ -137,6 +137,9 @@ function FacebookIcon() {
 
 function App() {
   const [showPassword, setShowPassword] = useState(false)
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const isLoginDisabled = email.trim() === '' || password.trim() === ''
 
   return (
     <main className="auth-page">
@@ -172,6 +175,8 @@ function App() {
                 type="email"
                 placeholder="Email"
                 autoComplete="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
                 required
               />
             </div>
@@ -186,6 +191,8 @@ function App() {
                 type={showPassword ? 'text' : 'password'}
                 placeholder="Password"
                 autoComplete="current-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
                 required
               />
               <button
@@ -202,7 +209,7 @@ function App() {
               Forgot password?
             </button>
 
-            <button type="submit" className="primary-action">
+            <button type="submit" className="primary-action" disabled={isLoginDisabled}>
               Log in
             </button>
 

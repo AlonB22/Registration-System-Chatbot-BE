@@ -270,7 +270,7 @@
 }
 
 .primary-action:disabled {
-  background: #3949ab;
+  background: #3949ab66; 
 }
 
 .or-divider {
