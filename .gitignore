@@ -1,1 +1,7 @@
 .env
+**/node_modules/
+frontend/dist/
+Mobile/dist/
+ToastServer/.env
+frontend/.env
+Backend/.env
