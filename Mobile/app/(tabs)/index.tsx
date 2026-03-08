@@ -1,24 +1,154 @@
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useState } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import {
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
   SafeAreaView,
+  type StyleProp,
   StyleSheet,
   Text,
   TextInput,
+  type TextInput as RNTextInput,
+  ToastAndroid,
+  type ViewStyle,
   View,
 } from 'react-native';
+
+type InputShellProps = {
+  children: ReactNode;
+  isFocused: boolean;
+  onFocusPress: () => void;
+  style: StyleProp<ViewStyle>;
+  focusedStyle: StyleProp<ViewStyle>;
+};
+
+function InputShell({
+  children,
+  isFocused,
+  onFocusPress,
+  style,
+  focusedStyle,
+}: InputShellProps) {
+  if (Platform.OS === 'android') {
+    return (
+      <Pressable onPress={onFocusPress} style={[style, isFocused && focusedStyle]}>
+        {children}
+      </Pressable>
+    );
+  }
+
+  return <View style={[style, isFocused && focusedStyle]}>{children}</View>;
+}
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [focusedField, setFocusedField] = useState<'email' | 'password' | null>(null);
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const emailInputRef = useRef<RNTextInput>(null);
+  const passwordInputRef = useRef<RNTextInput>(null);
 
   const isLoginDisabled = email.trim() === '' || password.trim() === '';
+  const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:5000';
+  const toastServerUrl =
+    process.env.EXPO_PUBLIC_TOAST_SERVER_URL || 'http://localhost:3001';
+
+  function showToast(message: string) {
+    if (Platform.OS === 'android') {
+      ToastAndroid.show(message, ToastAndroid.SHORT);
+      return;
+    }
+    Alert.alert('Notice', message);
+  }
+
+  async function getToastMessage(mode: 'login' | 'registration') {
+    const endpoint = mode === 'login' ? '/api/login-toast' : '/api/registration-toast';
+    const fallback = mode === 'login' ? 'Welcome back.' : 'Registration complete.';
+
+    try {
+      const response = await fetch(`${toastServerUrl}${endpoint}`);
+
+      if (!response.ok) {
+        throw new Error('Toast API request failed');
+      }
+
+      const payload = await response.json();
+      return payload?.message || fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  async function handleLogin() {
+    if (isLoggingIn || isLoginDisabled) {
+      return;
+    }
+
+    setIsLoggingIn(true);
+
+    try {
+      const response = await fetch(`${backendUrl}/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (response.status === 404) {
+        showToast('User not found. Please register to log in.');
+        return;
+      }
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || 'Login failed.');
+      }
+
+      const message = await getToastMessage('login');
+      showToast(message);
+    } catch (error: any) {
+      showToast(error?.message || 'Login failed.');
+    } finally {
+      setIsLoggingIn(false);
+    }
+  }
+
+  async function handleRegister() {
+    if (isRegistering) {
+      return;
+    }
+
+    if (isLoginDisabled) {
+      showToast('Please enter email and password before registering.');
+      return;
+    }
+
+    setIsRegistering(true);
+
+    try {
+      const response = await fetch(`${backendUrl}/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || 'Registration failed.');
+      }
+
+      const message = await getToastMessage('registration');
+      showToast(message);
+    } catch (error: any) {
+      showToast(error?.message || 'Registration failed.');
+    } finally {
+      setIsRegistering(false);
+    }
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -41,14 +171,18 @@ export default function LoginScreen() {
 
           <Text style={styles.title}>Log in</Text>
 
-          <View
-            style={[styles.inputShell, focusedField === 'email' && styles.inputShellFocused]}>
+          <InputShell
+            onFocusPress={() => emailInputRef.current?.focus()}
+            isFocused={focusedField === 'email'}
+            style={styles.inputShell}
+            focusedStyle={styles.inputShellFocused}>
             <Image
               source={require('@/assets/images/email-icon.svg')}
               style={styles.inputLeadingIcon}
               contentFit="contain"
             />
             <TextInput
+              ref={emailInputRef}
               value={email}
               onChangeText={setEmail}
               onFocus={() => setFocusedField('email')}
@@ -60,16 +194,20 @@ export default function LoginScreen() {
               autoCorrect={false}
               style={styles.input}
             />
-          </View>
+          </InputShell>
 
-          <View
-            style={[styles.inputShell, focusedField === 'password' && styles.inputShellFocused]}>
+          <InputShell
+            onFocusPress={() => passwordInputRef.current?.focus()}
+            isFocused={focusedField === 'password'}
+            style={styles.inputShell}
+            focusedStyle={styles.inputShellFocused}>
             <Image
               source={require('@/assets/images/lock-icon.svg')}
               style={styles.inputLeadingIcon}
               contentFit="contain"
             />
             <TextInput
+              ref={passwordInputRef}
               value={password}
               onChangeText={setPassword}
               onFocus={() => setFocusedField('password')}
@@ -84,7 +222,7 @@ export default function LoginScreen() {
             <Pressable onPress={() => setShowPassword((prev) => !prev)} hitSlop={8}>
               <Feather name={showPassword ? 'eye-off' : 'eye'} size={20} color="#909090" />
             </Pressable>
-          </View>
+          </InputShell>
 
           <Pressable style={styles.forgotButton}>
             <Text numberOfLines={1} style={styles.forgotText}>
@@ -92,7 +230,13 @@ export default function LoginScreen() {
             </Text>
           </Pressable>
           
-          <Pressable style={[styles.loginButton, isLoginDisabled && styles.loginButtonDisabled]}>
+          <Pressable
+            onPress={handleLogin}
+            disabled={isLoginDisabled || isLoggingIn}
+            style={[
+              styles.loginButton,
+              (isLoginDisabled || isLoggingIn) && styles.loginButtonDisabled,
+            ]}>
             <Text style={styles.loginButtonText}>Log in</Text>
           </Pressable>
 
@@ -119,7 +263,10 @@ export default function LoginScreen() {
           </View>
 
           <Text style={styles.footerCopy}>Have no account yet?</Text>
-          <Pressable style={styles.registerButton}>
+          <Pressable
+            onPress={handleRegister}
+            disabled={isRegistering}
+            style={[styles.registerButton, isRegistering && styles.registerButtonDisabled]}>
             <Text style={styles.registerButtonText}>Register</Text>
           </Pressable>
         </View>
@@ -202,12 +349,12 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    color: '#828282',
+    color: '#000000',
     fontSize: 14,
     fontWeight: '400',
-    lineHeight: 100,
+    lineHeight: 20,
     fontFamily: 'Lato_400Regular',
-    verticalAlign: 'middle',
+    includeFontPadding: false,
   },
   inputLeadingIcon: {
     width: 24,
@@ -310,6 +457,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#F6F6F6',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  registerButtonDisabled: {
+    opacity: 0.6,
   },
   registerButtonText: {
     color: '#5065C0',
