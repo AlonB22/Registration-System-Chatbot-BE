@@ -5,3 +5,4 @@ Mobile/dist/
 ToastServer/.env
 frontend/.env
 Backend/.env
+Mobile/.env

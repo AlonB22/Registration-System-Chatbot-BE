@@ -5,7 +5,16 @@ import express from 'express';
 dotenv.config();
 
 const app = express();
-app.use(cors());
+const rawCorsOrigins = (process.env.CORS_ALLOWED_ORIGINS || '*').trim();
+const corsOrigins =
+  rawCorsOrigins === '*'
+    ? true
+    : rawCorsOrigins
+        .split(',')
+        .map((origin) => origin.trim())
+        .filter(Boolean);
+
+app.use(cors({ origin: corsOrigins }));
 app.use(express.json());
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -143,5 +152,5 @@ app.get('/api/login-toast', async (_req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Toast server listening on http://localhost:${PORT}`);
+  console.log(`Toast server listening on port ${PORT}`);
 });
