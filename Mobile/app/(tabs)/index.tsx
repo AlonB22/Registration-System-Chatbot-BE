@@ -1,4 +1,5 @@
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import { Image } from 'expo-image';
 import { useRef, useState, type ReactNode } from 'react';
 import {
@@ -43,6 +44,51 @@ function InputShell({
   return <View style={[style, isFocused && focusedStyle]}>{children}</View>;
 }
 
+function resolveExpoHost(): string | null {
+  const hostUri =
+    Constants.expoConfig?.hostUri ??
+    (Constants as any)?.manifest2?.extra?.expoClient?.hostUri ??
+    (Constants as any)?.manifest?.debuggerHost;
+
+  if (typeof hostUri !== 'string' || hostUri.length === 0) {
+    return null;
+  }
+
+  const host = hostUri.split(':')[0];
+  return host || null;
+}
+
+function normalizeBaseUrl(rawUrl: string | undefined, defaultPort: number): string {
+  const expoHost = resolveExpoHost();
+  const fallback = expoHost ? `http://${expoHost}:${defaultPort}` : `http://localhost:${defaultPort}`;
+
+  if (!rawUrl || rawUrl.trim() === '') {
+    return fallback;
+  }
+
+  const trimmed = rawUrl.trim();
+
+  try {
+    const parsed = new URL(trimmed);
+    if (
+      parsed.hostname === 'localhost' ||
+      parsed.hostname === '127.0.0.1' ||
+      parsed.hostname === '0.0.0.0'
+    ) {
+      if (!expoHost) {
+        return trimmed;
+      }
+
+      const port = parsed.port || String(defaultPort);
+      return `${parsed.protocol}//${expoHost}:${port}`;
+    }
+
+    return trimmed;
+  } catch {
+    return fallback;
+  }
+}
+
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -54,9 +100,8 @@ export default function LoginScreen() {
   const passwordInputRef = useRef<RNTextInput>(null);
 
   const isLoginDisabled = email.trim() === '' || password.trim() === '';
-  const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:5000';
-  const toastServerUrl =
-    process.env.EXPO_PUBLIC_TOAST_SERVER_URL || 'http://localhost:3001';
+  const backendUrl = normalizeBaseUrl(process.env.EXPO_PUBLIC_BACKEND_URL, 5000);
+  const toastServerUrl = normalizeBaseUrl(process.env.EXPO_PUBLIC_TOAST_SERVER_URL, 3001);
 
   function showToast(message: string) {
     if (Platform.OS === 'android') {
@@ -313,7 +358,7 @@ const styles = StyleSheet.create({
   },
   title: {
     marginTop: 29,
-    marginBottom: 34,
+    marginBottom: 50,
     alignSelf: 'center',
     color: '#3949AB',
     fontFamily: 'Lato_700Bold',
@@ -336,7 +381,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     paddingHorizontal: 12,
-    marginBottom: 10,
+    marginBottom: 14,
     opacity: 1,
   },
   inputShellFocused: {
@@ -363,7 +408,7 @@ const styles = StyleSheet.create({
   forgotButton: {
     minWidth: 110,
     alignSelf: 'flex-end',
-    marginBottom: 12,
+    marginBottom: 32,
     opacity: 1,
   },
   forgotText: {
@@ -387,8 +432,8 @@ const styles = StyleSheet.create({
   },
   loginButtonText: {
     color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '500',
+    fontSize: 14,
+    fontWeight: '400',
     fontFamily: 'Lato_700Bold',
   },
   dividerRow: {
@@ -406,14 +451,14 @@ const styles = StyleSheet.create({
   },
   dividerText: {
     color: '#767676',
-    fontSize: 17,
-    fontWeight: '500',
+    fontSize: 14,
+    fontWeight: '400',
     fontFamily: 'Lato_700Bold',
   },
   socialRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 20,
+    marginBottom: 30,
   },
   socialButton: {
     width: 145,
@@ -429,13 +474,13 @@ const styles = StyleSheet.create({
   },
   socialButtonText: {
     color: '#5065C0',
-    fontSize: 18,
-    fontWeight: '500',
+    fontSize: 14,
+    fontWeight: '400',
     fontFamily: 'Lato_700Bold',
   },
   googleLogoIcon: {
-    width: 20,
-    height: 20,
+    width: 24,
+    height: 24,
   },
   footerCopy: {
     alignSelf: 'center',
