@@ -15,9 +15,11 @@
 
 .app-toast {
   position: fixed;
-  top: 20px;
-  right: 20px;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   z-index: 1000;
+  width: min(320px, calc(100vw - 32px));
   max-width: 320px;
   padding: 12px 14px;
   border-radius: 12px;

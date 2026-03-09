@@ -6,6 +6,11 @@ import logoS from './assets/logo-s.svg'
 import emailIcon from './assets/email-icon.svg'
 import lockIcon from './assets/lock-icon.svg'
 
+const USER_NOT_FOUND_TOAST = {
+  type: 'error',
+  message: 'User not found. Please register to log in.',
+}
+
 function EyeIcon({ isOpen }) {
   if (isOpen) {
     return (
@@ -101,6 +106,7 @@ function App() {
   const isLoginDisabled = email.trim() === '' || password.trim() === ''
   const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000'
   const toastServerUrl = import.meta.env.VITE_TOAST_SERVER_URL || 'http://localhost:3001'
+  const showUserNotFoundToast = () => setToast({ ...USER_NOT_FOUND_TOAST })
 
   useEffect(() => {
     if (!toast) {
@@ -155,22 +161,26 @@ function App() {
         body: JSON.stringify({ email, password }),
       })
 
-      if (response.status === 404) {
-        setToast({
-          type: 'error',
-          message: 'User not found. Please register to log in.',
-        })
-        return
-      }
-
       if (!response.ok) {
         const payload = await response.json().catch(() => null)
-        throw new Error(payload?.error || 'Login failed.')
+        const apiError = payload?.error || ''
+
+        if (response.status === 404 || /user not found/i.test(apiError)) {
+          showUserNotFoundToast()
+          return
+        }
+
+        throw new Error(apiError || 'Login failed.')
       }
 
       const message = await getToastMessage('login')
       setToast({ type: 'success', message })
     } catch (error) {
+      if (/user not found/i.test(error?.message || '')) {
+        showUserNotFoundToast()
+        return
+      }
+
       setToast({
         type: 'error',
         message: error?.message || 'Login failed.',
