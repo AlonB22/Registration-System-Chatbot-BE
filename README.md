@@ -21,7 +21,7 @@ These are web and mobile app videos for demonstration:
 - Mobile app demo: [frontend/public/mobile_app.mp4](./frontend/public/mobile_app.mp4)
 
 <video src="./frontend/public/web_app.mp4" controls width="900"></video>
-
+<video src="https://raw.githubusercontent.com/AlonB22/Registration-System-Chatbot/main/frontend/public/web_app.mp4" controls width="600"></video>
 <video src="./frontend/public/mobile_app.mp4" controls width="420"></video>
 
 ## Quick Verification (No Local Backend Needed)
