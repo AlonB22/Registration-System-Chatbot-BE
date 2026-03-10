@@ -3,7 +3,9 @@ import os
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-from pymongo import MongoClient
+
+from database import get_database_error, init_database, is_database_ready
+from services.user_service import login_user, register_user
 
 load_dotenv()
 
@@ -19,25 +21,8 @@ def parse_allowed_origins():
 
 CORS(app, resources={r"/*": {"origins": parse_allowed_origins()}})
 
-MONGO_URI = os.getenv("MONGO_URI")
-users_collection = None
-
-if not MONGO_URI:
-    print("MONGO_URI is missing. Database connection is disabled.")
-else:
-    try:
-        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
-        client.admin.command("ping")
-        print("Successfully connected to MongoDB!")
-
-        db = client["ElysianDB"]
-        users_collection = db["users"]
-    except Exception as error:
-        print(f"Connection error: {error}")
-
-
-def db_not_ready_response():
-    return jsonify({"error": "Database is not connected."}), 503
+# Initialize once on startup, but failures won't crash the app.
+init_database()
 
 
 @app.get("/health")
@@ -45,71 +30,30 @@ def health():
     return jsonify(
         {
             "ok": True,
-            "db_connected": users_collection is not None,
+            "db_connected": is_database_ready(),
+            "db_error": None if is_database_ready() else get_database_error(),
         }
     ), 200
 
 
 @app.post("/register")
 def register():
-    if users_collection is None:
-        return db_not_ready_response()
+    service_result = register_user(request.get_json(silent=True))
 
-    try:
-        data = request.json
-        if not data:
-            return jsonify({"error": "No data sent"}), 400
+    if service_result["success"]:
+        return jsonify(service_result["data"]), service_result["status_code"]
 
-        email = data.get("email", "").strip().lower()
-        password = data.get("password", "")
-
-        if not email or not password:
-            return jsonify({"error": "Email and password are required"}), 400
-
-        existing_user = users_collection.find_one({"email": email})
-        if existing_user:
-            return jsonify({"error": "User already exists."}), 409
-
-        result = users_collection.insert_one({"email": email, "password": password})
-
-        return (
-            jsonify(
-                {
-                    "message": "User registered successfully!",
-                    "id": str(result.inserted_id),
-                }
-            ),
-            201,
-        )
-    except Exception as error:
-        print(f"Error during registration: {error}")
-        return jsonify({"error": str(error)}), 500
+    return jsonify({"error": service_result["error"]}), service_result["status_code"]
 
 
 @app.post("/login")
 def login():
-    if users_collection is None:
-        return db_not_ready_response()
+    service_result = login_user(request.get_json(silent=True))
 
-    try:
-        data = request.json
-        if not data:
-            return jsonify({"error": "No data sent"}), 400
+    if service_result["success"]:
+        return jsonify(service_result["data"]), service_result["status_code"]
 
-        email = data.get("email", "").strip().lower()
-        password = data.get("password", "")
-
-        if not email or not password:
-            return jsonify({"error": "Email and password are required"}), 400
-
-        user = users_collection.find_one({"email": email, "password": password})
-        if not user:
-            return jsonify({"error": "User not found. Please register to log in."}), 404
-
-        return jsonify({"message": "Login successful", "id": str(user["_id"])}), 200
-    except Exception as error:
-        print(f"Error during login: {error}")
-        return jsonify({"error": str(error)}), 500
+    return jsonify({"error": service_result["error"]}), service_result["status_code"]
 
 
 if __name__ == "__main__":
