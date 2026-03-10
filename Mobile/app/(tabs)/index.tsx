@@ -5,6 +5,7 @@ import { useRef, useState, type ReactNode } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   SafeAreaView,
@@ -97,18 +98,18 @@ function normalizeBaseUrl(rawUrl: string | undefined, defaultPort: number): stri
 }
 
 export default function LoginScreen() {
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [focusedField, setFocusedField] = useState<
-    'firstName' | 'lastName' | 'email' | 'password' | null
-  >(null);
+  const [focusedField, setFocusedField] = useState<'email' | 'password' | null>(null);
   const [isRegistering, setIsRegistering] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
-  const firstNameInputRef = useRef<RNTextInput>(null);
-  const lastNameInputRef = useRef<RNTextInput>(null);
+  const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
+  const [registerFirstName, setRegisterFirstName] = useState('');
+  const [registerLastName, setRegisterLastName] = useState('');
+  const [registerEmail, setRegisterEmail] = useState('');
+  const [registerPassword, setRegisterPassword] = useState('');
+  const [showRegisterPassword, setShowRegisterPassword] = useState(false);
   const emailInputRef = useRef<RNTextInput>(null);
   const passwordInputRef = useRef<RNTextInput>(null);
 
@@ -180,13 +181,13 @@ export default function LoginScreen() {
       return;
     }
 
-    const normalizedFirstName = normalizeName(firstName);
-    const normalizedLastName = normalizeName(lastName);
-    const normalizedEmail = email.trim().toLowerCase();
-    const normalizedPassword = password.trim();
+    const normalizedFirstName = normalizeName(registerFirstName);
+    const normalizedLastName = normalizeName(registerLastName);
+    const normalizedEmail = registerEmail.trim().toLowerCase();
+    const normalizedPassword = registerPassword.trim();
 
     if (!normalizedFirstName || !normalizedLastName) {
-      showToast('Please enter first name and last name.');
+      showToast('Please enter first and last name.');
       return;
     }
 
@@ -231,6 +232,14 @@ export default function LoginScreen() {
 
       const message = await getToastMessage('registration');
       showToast(message);
+      setEmail(normalizedEmail);
+      setPassword(normalizedPassword);
+      setIsRegisterModalOpen(false);
+      setRegisterFirstName('');
+      setRegisterLastName('');
+      setRegisterEmail('');
+      setRegisterPassword('');
+      setShowRegisterPassword(false);
     } catch (error: any) {
       showToast(error?.message || 'Registration failed.');
     } finally {
@@ -238,11 +247,106 @@ export default function LoginScreen() {
     }
   }
 
+  function openRegisterModal() {
+    setRegisterFirstName('');
+    setRegisterLastName('');
+    setRegisterEmail(email.trim());
+    setRegisterPassword(password);
+    setShowRegisterPassword(false);
+    setIsRegisterModalOpen(true);
+  }
+
+  function closeRegisterModal() {
+    if (isRegistering) {
+      return;
+    }
+    setIsRegisterModalOpen(false);
+  }
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView
         behavior={Platform.select({ ios: 'padding', android: undefined })}
         style={styles.keyboardRoot}>
+        <Modal
+          transparent
+          visible={isRegisterModalOpen}
+          animationType="fade"
+          onRequestClose={closeRegisterModal}>
+          <Pressable style={styles.registerModalOverlay} onPress={closeRegisterModal}>
+            <Pressable style={styles.registerModalCard} onPress={() => {}}>
+              <Text style={styles.registerModalTitle}>Create account</Text>
+              <Text style={styles.registerModalSubtitle}>
+                Enter your details to register
+              </Text>
+
+              <TextInput
+                value={registerFirstName}
+                onChangeText={setRegisterFirstName}
+                placeholder="First name"
+                placeholderTextColor="#858585"
+                autoCapitalize="words"
+                autoCorrect={false}
+                style={styles.registerModalInput}
+              />
+
+              <TextInput
+                value={registerLastName}
+                onChangeText={setRegisterLastName}
+                placeholder="Last name"
+                placeholderTextColor="#858585"
+                autoCapitalize="words"
+                autoCorrect={false}
+                style={styles.registerModalInput}
+              />
+
+              <TextInput
+                value={registerEmail}
+                onChangeText={setRegisterEmail}
+                placeholder="Email"
+                placeholderTextColor="#858585"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                style={styles.registerModalInput}
+              />
+
+              <View style={styles.registerModalPasswordShell}>
+                <TextInput
+                  value={registerPassword}
+                  onChangeText={setRegisterPassword}
+                  placeholder="Password"
+                  placeholderTextColor="#858585"
+                  secureTextEntry={!showRegisterPassword}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  style={styles.registerModalPasswordInput}
+                />
+                <Pressable onPress={() => setShowRegisterPassword((prev) => !prev)} hitSlop={8}>
+                  <Feather name={showRegisterPassword ? 'eye-off' : 'eye'} size={20} color="#909090" />
+                </Pressable>
+              </View>
+
+              <View style={styles.registerModalActions}>
+                <Pressable
+                  onPress={closeRegisterModal}
+                  disabled={isRegistering}
+                  style={[styles.registerModalCancel, isRegistering && styles.registerButtonDisabled]}>
+                  <Text style={styles.registerModalCancelText}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  onPress={handleRegister}
+                  disabled={isRegistering}
+                  style={[styles.registerModalSubmit, isRegistering && styles.registerButtonDisabled]}>
+                  <Text style={styles.registerModalSubmitText}>
+                    {isRegistering ? 'Registering...' : 'Register'}
+                  </Text>
+                </Pressable>
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
         <View style={styles.container}>
           <View style={styles.logoBox}>
             <Image
@@ -258,44 +362,6 @@ export default function LoginScreen() {
           </View>
 
           <Text style={styles.title}>Log in</Text>
-
-          <InputShell
-            onFocusPress={() => firstNameInputRef.current?.focus()}
-            isFocused={focusedField === 'firstName'}
-            style={styles.inputShell}
-            focusedStyle={styles.inputShellFocused}>
-            <TextInput
-              ref={firstNameInputRef}
-              value={firstName}
-              onChangeText={setFirstName}
-              onFocus={() => setFocusedField('firstName')}
-              onBlur={() => setFocusedField(null)}
-              placeholder="First name"
-              placeholderTextColor="#858585"
-              autoCapitalize="words"
-              autoCorrect={false}
-              style={styles.input}
-            />
-          </InputShell>
-
-          <InputShell
-            onFocusPress={() => lastNameInputRef.current?.focus()}
-            isFocused={focusedField === 'lastName'}
-            style={styles.inputShell}
-            focusedStyle={styles.inputShellFocused}>
-            <TextInput
-              ref={lastNameInputRef}
-              value={lastName}
-              onChangeText={setLastName}
-              onFocus={() => setFocusedField('lastName')}
-              onBlur={() => setFocusedField(null)}
-              placeholder="Last name"
-              placeholderTextColor="#858585"
-              autoCapitalize="words"
-              autoCorrect={false}
-              style={styles.input}
-            />
-          </InputShell>
 
           <InputShell
             onFocusPress={() => emailInputRef.current?.focus()}
@@ -390,7 +456,7 @@ export default function LoginScreen() {
 
           <Text style={styles.footerCopy}>Have no account yet?</Text>
           <Pressable
-            onPress={handleRegister}
+            onPress={openRegisterModal}
             disabled={isRegistering}
             style={[styles.registerButton, isRegistering && styles.registerButtonDisabled]}>
             <Text style={styles.registerButtonText}>Register</Text>
@@ -591,6 +657,104 @@ const styles = StyleSheet.create({
     color: '#3949AB',
     fontSize: 14,
     fontWeight: '400',
+    fontFamily: 'Lato_700Bold',
+  },
+  registerModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(22, 31, 82, 0.52)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 18,
+  },
+  registerModalCard: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: '#1A245B',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.28,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  registerModalTitle: {
+    color: '#3949AB',
+    fontSize: 22,
+    fontWeight: '700',
+    fontFamily: 'Lato_700Bold',
+    textAlign: 'center',
+  },
+  registerModalSubtitle: {
+    marginTop: 6,
+    marginBottom: 14,
+    color: '#5B6185',
+    fontSize: 13,
+    fontWeight: '400',
+    textAlign: 'center',
+    fontFamily: 'Lato_400Regular',
+  },
+  registerModalInput: {
+    height: 40,
+    borderWidth: 1,
+    borderColor: '#D0D0D0',
+    borderRadius: 10,
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 12,
+    color: '#000000',
+    fontSize: 14,
+    marginBottom: 10,
+    fontFamily: 'Lato_400Regular',
+  },
+  registerModalPasswordShell: {
+    height: 40,
+    borderWidth: 1,
+    borderColor: '#D0D0D0',
+    borderRadius: 10,
+    backgroundColor: '#ffffff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    marginBottom: 12,
+  },
+  registerModalPasswordInput: {
+    flex: 1,
+    color: '#000000',
+    fontSize: 14,
+    fontFamily: 'Lato_400Regular',
+  },
+  registerModalActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  registerModalCancel: {
+    flex: 1,
+    height: 40,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#3949AB',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ffffff',
+  },
+  registerModalSubmit: {
+    flex: 1,
+    height: 40,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#3949AB',
+  },
+  registerModalCancelText: {
+    color: '#3949AB',
+    fontSize: 14,
+    fontWeight: '600',
+    fontFamily: 'Lato_700Bold',
+  },
+  registerModalSubmitText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
     fontFamily: 'Lato_700Bold',
   },
 });
