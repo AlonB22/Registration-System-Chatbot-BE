@@ -52,62 +52,68 @@ Expected behavior:
 
 ## Watch Chat Log File Changes (Azure Excel)
 
-The chatbot writes conversation rows to:
-- `/home/site/wwwroot/AB_Deliveries_Chatbot_Logs.xlsx`
+The chatbot appends rows to an Excel blob in Azure Storage:
+- Container: `chatlogs`
+- Blob: `AB_Deliveries_Chatbot_Logs.xlsx`
 
-Use these PowerShell commands to watch changes with your own eyes:
+Use a read-only SAS URL so HR/reviewers can track updates without Azure account access.
 
-### 1) Set variables and Kudu auth
+### Admin: generate read-only SAS URL (one-time share)
 ```powershell
-$rg  = "rg-regsys"
-$app = "regsys-backend-alonb"
-
-$pub = az webapp deployment list-publishing-credentials -g $rg -n $app | ConvertFrom-Json
-$pair = "$($pub.publishingUserName):$($pub.publishingPassword)"
-$basic = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($pair))
-$headers = @{ Authorization = "Basic $basic" }
+az storage blob generate-sas `
+  --account-name <storage-account> `
+  --container-name chatlogs `
+  --name AB_Deliveries_Chatbot_Logs.xlsx `
+  --permissions r `
+  --expiry 2026-12-31T23:59:00Z `
+  --https-only `
+  --auth-mode key `
+  --account-key <account-key> -o tsv
 ```
 
-### 2) Trigger a new chat row (with unique marker)
-```powershell
-$tag = "E2E-" + (Get-Date -Format "yyyyMMddHHmmss")
-$body = @{
-  message = "בדיקת לוג $tag. הטלפון שלי 0501234567. מספר מעקב AB12CD34EF"
-  history = @()
-  user = @{ first_name = "Alon"; last_name = "Ben"; email = "alon@test.com" }
-} | ConvertTo-Json -Depth 6
-
-(Invoke-WebRequest -UseBasicParsing "https://$app.azurewebsites.net/chat" -Method POST -ContentType "application/json" -Body $body).Content
-$tag
+Build the full URL and share it:
+```text
+https://<storage-account>.blob.core.windows.net/chatlogs/AB_Deliveries_Chatbot_Logs.xlsx?<sas-token>
 ```
 
-### 3) Check file metadata (size + modified time)
+Notes:
+- Share once, not per file change.
+- Send a new URL only when SAS expires or is revoked.
+
+### HR/Reviewer: check file updates
+Set the SAS URL:
 ```powershell
-Invoke-RestMethod -Uri "https://$app.scm.azurewebsites.net/api/vfs/site/wwwroot/" -Headers $headers |
-  Where-Object { $_.name -eq "AB_Deliveries_Chatbot_Logs.xlsx" } |
-  Select-Object name, size, mtime
+$SAS_URL = "<PASTE_FULL_SAS_URL_HERE>"
 ```
 
-### 4) Download and open the file
+Check last modified time:
 ```powershell
-Invoke-WebRequest -Uri "https://$app.scm.azurewebsites.net/api/vfs/site/wwwroot/AB_Deliveries_Chatbot_Logs.xlsx" `
-  -Headers $headers `
-  -OutFile ".\AB_Deliveries_Chatbot_Logs_from_Azure.xlsx"
-
-Start-Process ".\AB_Deliveries_Chatbot_Logs_from_Azure.xlsx"
+(Invoke-WebRequest -Uri $SAS_URL -Method Head).Headers["Last-Modified"]
 ```
 
-### 5) Optional: watch continuously (every 10 seconds)
+Download latest file:
 ```powershell
+Invoke-WebRequest -Uri $SAS_URL -OutFile ".\AB_Deliveries_Chatbot_Logs.xlsx"
+```
+
+Open it:
+```powershell
+Start-Process ".\AB_Deliveries_Chatbot_Logs.xlsx"
+```
+
+### Optional: watch continuously (every 30 seconds)
+```powershell
+$prev = ""
 while ($true) {
-  Invoke-RestMethod -Uri "https://$app.scm.azurewebsites.net/api/vfs/site/wwwroot/" -Headers $headers |
-    Where-Object { $_.name -eq "AB_Deliveries_Chatbot_Logs.xlsx" } |
-    Select-Object name, size, mtime
-  Start-Sleep -Seconds 10
+  $lm = (Invoke-WebRequest -Uri $SAS_URL -Method Head).Headers["Last-Modified"]
+  if ($lm -ne $prev) {
+    Write-Host "$(Get-Date -Format s) Updated: $lm"
+    Invoke-WebRequest -Uri $SAS_URL -OutFile ".\AB_Deliveries_Chatbot_Logs.xlsx"
+    $prev = $lm
+  }
+  Start-Sleep -Seconds 30
 }
 ```
-
-If you get `404`, send one `/chat` message first, then check again.
 
 ## What To Review In Code
 - Backend API routes: `Backend/app.py`
@@ -116,6 +122,27 @@ If you get `404`, send one `/chat` message first, then check again.
 - Toast generation service: `ToastServer/server.js`
 - Web registration modal + validation: `frontend/src/App.jsx`
 - Mobile registration payload + validation: `Mobile/app/(tabs)/index.tsx`
+- Chatbot system base prompt:
+```text
+        "אתה נציג שירות ומכירות של A.B Deliveries.\n"
+        "חובות התפקיד שלך:\n"
+        "1) שירות לקוחות בנושא סטטוס משלוחים וחבילות.\n"
+        "2) תמיכה מכירתית שמעודדת את הלקוח להזמין יותר משלוחים בצורה נעימה ולא אגרסיבית.\n\n"
+        "כללי שפה והצגה:\n"
+        "- כתוב בעברית בלבד.\n"
+        "- גם אם המשתמש כותב באנגלית או שפה אחרת, השב בעברית בלבד.\n"
+        "- שמור על ניסוח ברור, ידידותי ומקצועי.\n"
+        "- השתמש בפורמט שמתאים ל-RTL (משפטים קצרים, רשימות קצרות כשצריך).\n\n"
+        "כללי שירות:\n"
+        "- כשמבקשים סטטוס חבילה, מספר המעקב חייב להיות באורך 10 תווים (אותיות/מספרים).\n"
+        "- אם אין מספר מעקב תקין, הסבר זאת במפורש ובקש מספר מעקב של 10 תווים.\n"
+        "- אם אין מספיק מידע, הסבר מה חסר ובקש את המינימום הנדרש להמשך.\n"
+        "- סטטוס המשלוח הוא סימולציה פנימית; ספק סטטוס אפשרי באופן בטוח ואחיד.\n\n"
+        "כללי מכירה:\n"
+        "- בכל תשובה נסה להוסיף הצעה קצרה ורלוונטית להזמנה נוספת או לשדרוג שירות משלוחים.\n"
+        "- הדגש ערך עסקי: חיסכון בזמן, אמינות, איסוף מהיר, ושירות לעסקים.\n"
+```
+
 
 ## Local Frontend/Mobile (Optional)
 

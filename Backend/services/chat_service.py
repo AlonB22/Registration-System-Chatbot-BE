@@ -2,19 +2,31 @@ import os
 import re
 import logging
 import hashlib
+from io import BytesIO
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 from openpyxl import Workbook, load_workbook
 from requests import RequestException
 
+try:
+    from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
+    from azure.storage.blob import BlobServiceClient, ContentSettings
+except ImportError:
+    BlobServiceClient = None
+    ContentSettings = None
+    ResourceExistsError = None
+    ResourceNotFoundError = None
+
 OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
 ALLOWED_HISTORY_ROLES = {"user", "assistant"}
 CHAT_LOG_FILE_NAME = "AB_Deliveries_Chatbot_Logs.xlsx"
 CHAT_LOG_HEADERS = ["Timestamp", "Caller Name", "Phone Number", "Conversation Details"]
+DEFAULT_CHAT_LOG_CONTAINER = "chatlogs"
+CHAT_LOG_BLOB_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 PHONE_PATTERNS = [
     re.compile(r"(?<!\d)(?:\+972[-\s]?|0)?5\d[-\s]?\d{7}(?!\d)"),
     re.compile(r"(?<!\d)\d{7,15}(?!\d)"),
@@ -57,6 +69,110 @@ def _resolve_chat_log_path() -> Path:
             return toast_dir / CHAT_LOG_FILE_NAME
 
     return Path(__file__).resolve().parents[2] / "ToastServer" / CHAT_LOG_FILE_NAME
+
+
+def _resolve_chat_log_blob_settings() -> Optional[Tuple[str, str, str]]:
+    connection_string = _normalize_text(os.getenv("AZURE_STORAGE_CONNECTION_STRING"))
+    if not connection_string:
+        return None
+
+    if BlobServiceClient is None:
+        LOGGER.warning(
+            "AZURE_STORAGE_CONNECTION_STRING is set but azure-storage-blob is not installed. "
+            "Falling back to local chat log file."
+        )
+        return None
+
+    container_name = _normalize_text(os.getenv("AZURE_STORAGE_CONTAINER_NAME")) or DEFAULT_CHAT_LOG_CONTAINER
+    blob_name = _normalize_text(os.getenv("CHAT_LOG_BLOB_NAME")) or CHAT_LOG_FILE_NAME
+    return connection_string, container_name, blob_name
+
+
+def _append_chat_log_row_to_workbook(
+    workbook: Workbook,
+    caller_name: str,
+    phone_number: str,
+    conversation_details: str,
+) -> None:
+    worksheet = workbook.active
+    worksheet.title = worksheet.title or "Logs"
+
+    first_row_values = [worksheet.cell(row=1, column=index).value for index in range(1, 5)]
+    if worksheet.max_row == 1 and all(value is None for value in first_row_values):
+        for column_index, header in enumerate(CHAT_LOG_HEADERS, start=1):
+            worksheet.cell(row=1, column=column_index, value=header)
+
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    row_values = [timestamp, caller_name, phone_number, conversation_details]
+    if worksheet.max_column > len(row_values):
+        row_values.extend([""] * (worksheet.max_column - len(row_values)))
+
+    worksheet.append(row_values)
+
+
+def _append_chat_log_row_to_local_file(
+    caller_name: str,
+    phone_number: str,
+    conversation_details: str,
+) -> None:
+    log_path = _resolve_chat_log_path()
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if log_path.exists():
+        workbook = load_workbook(log_path)
+    else:
+        workbook = Workbook()
+        workbook.active.title = "Logs"
+
+    _append_chat_log_row_to_workbook(workbook, caller_name, phone_number, conversation_details)
+    workbook.save(log_path)
+    workbook.close()
+
+
+def _append_chat_log_row_to_blob(
+    caller_name: str,
+    phone_number: str,
+    conversation_details: str,
+    connection_string: str,
+    container_name: str,
+    blob_name: str,
+) -> None:
+    blob_service_client = BlobServiceClient.from_connection_string(connection_string)
+    container_client = blob_service_client.get_container_client(container_name)
+    blob_client = container_client.get_blob_client(blob_name)
+
+    try:
+        container_client.create_container()
+    except Exception as error:
+        if ResourceExistsError is None or not isinstance(error, ResourceExistsError):
+            raise
+
+    workbook: Workbook
+    try:
+        blob_payload = blob_client.download_blob().readall()
+        workbook = load_workbook(filename=BytesIO(blob_payload))
+    except Exception as error:
+        if ResourceNotFoundError is not None and isinstance(error, ResourceNotFoundError):
+            workbook = Workbook()
+            workbook.active.title = "Logs"
+        else:
+            raise
+
+    _append_chat_log_row_to_workbook(workbook, caller_name, phone_number, conversation_details)
+
+    output_buffer = BytesIO()
+    workbook.save(output_buffer)
+    workbook.close()
+
+    output_buffer.seek(0)
+    if ContentSettings is not None:
+        blob_client.upload_blob(
+            output_buffer.getvalue(),
+            overwrite=True,
+            content_settings=ContentSettings(content_type=CHAT_LOG_BLOB_CONTENT_TYPE),
+        )
+    else:
+        blob_client.upload_blob(output_buffer.getvalue(), overwrite=True)
 
 
 def _normalize_history(raw_history: Any) -> List[Dict[str, str]]:
@@ -142,33 +258,25 @@ def _build_conversation_details(
 
 
 def _append_chat_log_row(caller_name: str, phone_number: str, conversation_details: str) -> None:
-    log_path = _resolve_chat_log_path()
-    log_path.parent.mkdir(parents=True, exist_ok=True)
+    blob_settings = _resolve_chat_log_blob_settings()
 
     with _LOG_WRITE_LOCK:
-        created_new_workbook = False
-        if log_path.exists():
-            workbook = load_workbook(log_path)
-            worksheet = workbook.active
-        else:
-            workbook = Workbook()
-            worksheet = workbook.active
-            worksheet.title = "Logs"
-            created_new_workbook = True
+        if blob_settings:
+            try:
+                _append_chat_log_row_to_blob(
+                    caller_name,
+                    phone_number,
+                    conversation_details,
+                    *blob_settings,
+                )
+                return
+            except Exception as error:
+                LOGGER.exception(
+                    "Failed to write chat log row to Azure Blob Storage, falling back to local file: %s",
+                    error,
+                )
 
-        first_row_values = [worksheet.cell(row=1, column=index).value for index in range(1, 5)]
-        if created_new_workbook or (worksheet.max_row == 1 and all(value is None for value in first_row_values)):
-            for column_index, header in enumerate(CHAT_LOG_HEADERS, start=1):
-                worksheet.cell(row=1, column=column_index, value=header)
-
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        row_values = [timestamp, caller_name, phone_number, conversation_details]
-        if worksheet.max_column > len(row_values):
-            row_values.extend([""] * (worksheet.max_column - len(row_values)))
-
-        worksheet.append(row_values)
-        workbook.save(log_path)
-        workbook.close()
+        _append_chat_log_row_to_local_file(caller_name, phone_number, conversation_details)
 
 
 def _log_chat_conversation(
